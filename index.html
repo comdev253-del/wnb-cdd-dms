@@ -323,7 +323,13 @@ select.fI{cursor:pointer}
       </div>
       <div class="loginFoot">
         Official Government System · WNB Provincial Administration<br>
-        Data stored locally in browser · © 2026 Naitechs Prod
+        Data stored locally in browser · © 2026 Naitechs Prod<br>
+        <span style="margin-top:6px;display:inline-block;">
+          <a href="javascript:void(0)" onclick="resetToDefaults()" 
+             style="color:rgba(196,107,26,.6);font-size:9px;text-decoration:underline;cursor:pointer;">
+            Reset to default accounts
+          </a>
+        </span>
       </div>
     </div>
   </div>
@@ -610,8 +616,22 @@ var DEFAULT_USERS = [
   {u:'officer02',p:'pass123',n:'Field Officer 2',r:'officer',d:'Community',s:'Active'}
 ];
 
-function getUsers(){ return LS.get('wnb_users', DEFAULT_USERS); }
+function getUsers(){
+  var u = LS.get('wnb_users', null);
+  if(!u || !Array.isArray(u) || u.length === 0){ return DEFAULT_USERS; }
+  return u;
+}
 function saveUsers(u){ LS.set('wnb_users', u); }
+function resetToDefaults(){
+  if(confirm('Reset user accounts to defaults? This will restore admin/admin123 and officer01/pass123. Your records will NOT be deleted.')){
+    LS.set('wnb_users', DEFAULT_USERS);
+    var errEl = g('loginErr');
+    errEl.style.display = 'block';
+    errEl.style.background = 'rgba(26,107,58,.2)';
+    errEl.style.color = '#90E0B0';
+    errEl.textContent = 'Reset done! Login: admin / admin123';
+  }
+}
 
 // ── SESSION ────────────────────────────────────────
 var SES = { u:'', n:'', r:'', d:'' };
@@ -703,11 +723,13 @@ function saveRecords(mod, recs){ LS.set('wnb_rec_'+mod, recs); }
 
 // ── AUDIT LOG ──────────────────────────────────────
 function logAudit(action, detail){
-  var log = LS.get('wnb_audit', []);
-  log.unshift({t: new Date().toLocaleString(), u: SES.n||SES.u, a: action, d: detail});
-  if(log.length > 200) log = log.slice(0, 200);
-  LS.set('wnb_audit', log);
-  renderRecentActivity();
+  try{
+    var log = LS.get('wnb_audit', []);
+    log.unshift({t: new Date().toLocaleString(), u: SES.n||SES.u||'system', a: action, d: detail});
+    if(log.length > 200) log = log.slice(0, 200);
+    LS.set('wnb_audit', log);
+    try{ renderRecentActivity(); }catch(e){}
+  }catch(e){}
 }
 
 // ── BROADCAST ──────────────────────────────────────
@@ -738,45 +760,54 @@ function tglPwd(){ var i=g('inPass'); i.type = i.type==='password' ? 'text' : 'p
 
 function doLogin(){
   var user = (g('inUser').value||'').trim();
-  var pass = g('inPass').value;
+  var pass = (g('inPass').value||'').trim();
   var btn = g('btnSignIn');
   if(!user || !pass){ toast('Enter username and password','err'); return; }
-  btn.disabled = true; btn.textContent = 'Signing in…';
+  btn.disabled = true; btn.textContent = 'Signing in...';
   var users = getUsers();
   var found = null;
   for(var i=0; i<users.length; i++){
-    if(users[i].u === user && users[i].p === pass && users[i].s !== 'Inactive'){
-      found = users[i]; break;
+    var u = users[i];
+    if(u && u.u === user && u.p === pass && u.s !== 'Inactive'){
+      found = u; break;
     }
   }
   setTimeout(function(){
     btn.disabled = false; btn.textContent = 'SIGN IN';
     if(found){
       SES = { u: found.u, n: found.n, r: found.r, d: found.d||'CDD' };
-      logAudit('LOGIN', 'User signed in');
+      try{ logAudit('LOGIN', 'User signed in'); }catch(e){}
       onLogin();
     } else {
-      g('loginErr').style.display = 'block';
-      g('loginErr').textContent = 'Invalid credentials. Check username / password.';
+      var errEl = g('loginErr');
+      errEl.style.display = 'block';
+      errEl.textContent = 'Invalid credentials. Try: admin / admin123';
     }
-  }, 400);
+  }, 300);
 }
 
 function onLogin(){
-  g('loginView').style.display = 'none';
-  var ma = g('mainApp'); ma.style.display = 'flex';
-  g('ucName').textContent = SES.n;
-  g('ucRole').textContent = SES.r.toUpperCase() + ' · ' + SES.d;
-  g('ucAva').textContent = ini(SES.n);
-  g('sbUser').textContent = SES.n;
-  g('heroUser').textContent = SES.n;
-  var rp = g('rolePillEl');
-  if(SES.r === 'boss'){ rp.className='rolePill rp-boss'; rp.textContent='BOSS'; }
-  else { rp.className='rolePill rp-officer'; rp.textContent='OFFICER'; }
-  if(SES.r !== 'boss'){
-    var an = g('nav-admin'); if(an) an.style.display='none';
+  try{
+    var lv = g('loginView'); if(lv) lv.style.display = 'none';
+    var ma = g('mainApp');
+    if(ma){ ma.style.display = 'flex'; ma.style.flexDirection = 'column'; }
+    var ucN = g('ucName'); if(ucN) ucN.textContent = SES.n;
+    var ucR = g('ucRole'); if(ucR) ucR.textContent = SES.r.toUpperCase() + ' - ' + SES.d;
+    var ucA = g('ucAva'); if(ucA) ucA.textContent = ini(SES.n);
+    var sbU = g('sbUser'); if(sbU) sbU.textContent = SES.n;
+    var hU  = g('heroUser'); if(hU) hU.textContent = SES.n;
+    var rp  = g('rolePillEl');
+    if(rp){
+      if(SES.r === 'boss'){ rp.className='rolePill rp-boss'; rp.textContent='BOSS'; }
+      else { rp.className='rolePill rp-officer'; rp.textContent='OFFICER'; }
+    }
+    if(SES.r !== 'boss'){
+      var an = g('nav-admin'); if(an) an.style.display='none';
+    }
+    showPage('dash');
+  } catch(err){
+    alert('Login error: ' + err.message + '. Please refresh the page and try again.');
   }
-  showPage('dash');
 }
 
 function doLogout(){
@@ -1217,10 +1248,12 @@ function updateDash(){
 }
 
 function updateBadges(){
-  MOD_KEYS.forEach(function(mod){
-    var b = g('badge-'+mod);
-    if(b) b.textContent = getRecords(mod).length;
-  });
+  try{
+    MOD_KEYS.forEach(function(mod){
+      var b = g('badge-'+mod);
+      if(b) b.textContent = getRecords(mod).length;
+    });
+  }catch(e){}
 }
 
 var _cardsBuilt = false;
@@ -1492,16 +1525,20 @@ function _doPrint(mod, recs){
 }
 
 // ── INIT ───────────────────────────────────────────
-(function init(){
-  buildModulePages();
-  // Auto-setup ID/date fields per module after a tick
+function init(){
+  try{ buildModulePages(); }catch(e){ console.error('buildModulePages error:', e); }
   setTimeout(function(){
-    MOD_KEYS.forEach(function(mod){ autoSetIdField(mod); });
-  }, 200);
+    try{ MOD_KEYS.forEach(function(mod){ autoSetIdField(mod); }); }catch(e){}
+  }, 500);
   setInterval(tick, 1000);
   tick();
-  updateBadges();
-})();
+  setTimeout(function(){ try{ updateBadges(); }catch(e){} }, 100);
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 </script>
 </body>
 </html>
