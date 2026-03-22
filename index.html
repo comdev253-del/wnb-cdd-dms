@@ -303,7 +303,15 @@ select.fI{cursor:pointer}
         <div style="background:rgba(196,107,26,.1);border:1px solid rgba(196,107,26,.25);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:rgba(240,200,128,.9);line-height:1.6;">
           <strong>Default accounts:</strong><br>
           Boss: <code style="color:#F0C880;">admin</code> / <code style="color:#F0C880;">admin123</code><br>
-          Officer: <code style="color:#F0C880;">officer01</code> / <code style="color:#F0C880;">pass123</code>
+          Officer: <code style="color:#F0C880;">officer01</code> / <code style="color:#F0C880;">pass123</code><br>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(196,107,26,.2);">
+            <button onclick="hardReset()" type="button"
+              style="background:rgba(196,107,26,.25);border:1px solid rgba(196,107,26,.4);color:#F0C880;
+                     padding:4px 12px;border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;
+                     font-family:Nunito,sans-serif;letter-spacing:.5px;">
+              🔄 Can't login? Click here to reset
+            </button>
+          </div>
         </div>
         <div class="lFG">
           <label>Username</label>
@@ -325,7 +333,7 @@ select.fI{cursor:pointer}
         Official Government System · WNB Provincial Administration<br>
         Data stored locally in browser · © 2026 Naitechs Prod<br>
         <span style="margin-top:6px;display:inline-block;">
-          <a href="javascript:void(0)" onclick="resetToDefaults()" 
+          <a href="javascript:void(0)" onclick="hardReset()" 
              style="color:rgba(196,107,26,.6);font-size:9px;text-decoration:underline;cursor:pointer;">
             Reset to default accounts
           </a>
@@ -617,21 +625,37 @@ var DEFAULT_USERS = [
 ];
 
 function getUsers(){
-  var u = LS.get('wnb_users', null);
-  if(!u || !Array.isArray(u) || u.length === 0){ return DEFAULT_USERS; }
+  // Always make sure defaults exist in storage
+  var u = LS.get('wnb_users_v2', null);
+  if(!u || !Array.isArray(u) || u.length === 0){
+    LS.set('wnb_users_v2', DEFAULT_USERS);
+    return DEFAULT_USERS;
+  }
   return u;
 }
-function saveUsers(u){ LS.set('wnb_users', u); }
-function resetToDefaults(){
-  if(confirm('Reset user accounts to defaults? This will restore admin/admin123 and officer01/pass123. Your records will NOT be deleted.')){
-    LS.set('wnb_users', DEFAULT_USERS);
-    var errEl = g('loginErr');
-    errEl.style.display = 'block';
-    errEl.style.background = 'rgba(26,107,58,.2)';
-    errEl.style.color = '#90E0B0';
-    errEl.textContent = 'Reset done! Login: admin / admin123';
+function saveUsers(u){ LS.set('wnb_users_v2', u); }
+function hardReset(){
+  // Wipe ALL possible user storage keys across all versions
+  ['wnb_users','wnb_users_v2','wnb_users_v3'].forEach(function(k){
+    try{ localStorage.removeItem(k); }catch(e){}
+  });
+  // Re-seed clean defaults
+  LS.set('wnb_users_v2', DEFAULT_USERS);
+  // Show green success message
+  var el = g('loginErr');
+  if(el){
+    el.style.display = 'block';
+    el.style.background = 'rgba(26,107,58,.25)';
+    el.style.color = '#90FFB8';
+    el.style.border = '1px solid rgba(40,160,80,.4)';
+    el.textContent = 'Done! Use: admin / admin123';
   }
+  // Pre-fill the login fields
+  var iu = g('inUser'), ip = g('inPass');
+  if(iu) iu.value = 'admin';
+  if(ip) ip.value = 'admin123';
 }
+function resetToDefaults(){ hardReset(); }
 
 // ── SESSION ────────────────────────────────────────
 var SES = { u:'', n:'', r:'', d:'' };
@@ -762,28 +786,44 @@ function doLogin(){
   var user = (g('inUser').value||'').trim();
   var pass = (g('inPass').value||'').trim();
   var btn = g('btnSignIn');
-  if(!user || !pass){ toast('Enter username and password','err'); return; }
+  if(!user || !pass){ showLoginErr('Enter username and password.'); return; }
   btn.disabled = true; btn.textContent = 'Signing in...';
-  var users = getUsers();
+
+  // Try stored users first, then always try DEFAULT_USERS as fallback
   var found = null;
-  for(var i=0; i<users.length; i++){
-    var u = users[i];
-    if(u && u.u === user && u.p === pass && u.s !== 'Inactive'){
-      found = u; break;
+  var allUserSets = [getUsers(), DEFAULT_USERS];
+  for(var s=0; s<allUserSets.length && !found; s++){
+    var users = allUserSets[s];
+    if(!Array.isArray(users)) continue;
+    for(var i=0; i<users.length; i++){
+      var u = users[i];
+      if(u && typeof u.u==='string' && typeof u.p==='string'){
+        if(u.u.trim()===user && u.p.trim()===pass && u.s!=='Inactive'){
+          found = u; break;
+        }
+      }
     }
   }
+
   setTimeout(function(){
     btn.disabled = false; btn.textContent = 'SIGN IN';
     if(found){
-      SES = { u: found.u, n: found.n, r: found.r, d: found.d||'CDD' };
-      try{ logAudit('LOGIN', 'User signed in'); }catch(e){}
+      SES = { u: found.u, n: found.n||found.u, r: found.r||'officer', d: found.d||'CDD' };
+      try{ logAudit('LOGIN', 'Signed in'); }catch(e){}
       onLogin();
     } else {
-      var errEl = g('loginErr');
-      errEl.style.display = 'block';
-      errEl.textContent = 'Invalid credentials. Try: admin / admin123';
+      showLoginErr('Wrong username or password. Default: admin / admin123');
     }
   }, 300);
+}
+
+function showLoginErr(msg){
+  var el = g('loginErr');
+  if(!el) return;
+  el.style.display = 'block';
+  el.style.background = 'rgba(139,26,26,.2)';
+  el.style.color = '#FFC0C0';
+  el.textContent = msg;
 }
 
 function onLogin(){
@@ -1526,6 +1566,13 @@ function _doPrint(mod, recs){
 
 // ── INIT ───────────────────────────────────────────
 function init(){
+  // Always ensure default users are seeded on first load
+  try{
+    var u = LS.get('wnb_users_v2', null);
+    if(!u || !Array.isArray(u) || u.length===0){
+      LS.set('wnb_users_v2', DEFAULT_USERS);
+    }
+  }catch(e){}
   try{ buildModulePages(); }catch(e){ console.error('buildModulePages error:', e); }
   setTimeout(function(){
     try{ MOD_KEYS.forEach(function(mod){ autoSetIdField(mod); }); }catch(e){}
